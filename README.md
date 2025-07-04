@@ -2,6 +2,9 @@
 
 A web application for detecting fake news using AI and Natural Language Processing. Built with Streamlit for easy deployment and optimized for the LIAR dataset.
 
+Web
+https://fnd-fakenewsdetection.streamlit.app/
+
 ## 🌟 Key Features
 
 - ✅ **Fake News Detection**: Analyzes news text using machine learning
