@@ -13,66 +13,162 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
-# Download required NLTK data
+# NLTK imports with fallback handling
+try:
+    import nltk
+    from nltk.tokenize import word_tokenize
+    from nltk.corpus import stopwords
+    from nltk.stem import PorterStemmer
+    NLTK_AVAILABLE = True
+except ImportError:
+    print("⚠️ NLTK not available, using fallback methods")
+    NLTK_AVAILABLE = False
+    
+    # Create fallback word_tokenize function
+    def word_tokenize(text):
+        return text.split()
+
 @st.cache_resource
 def download_nltk_data():
+    """Download required NLTK data with better error handling"""
+    if not NLTK_AVAILABLE:
+        print("⚠️ NLTK not available, skipping download")
+        return False
+        
+    import ssl
+    import nltk
+    
     try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        nltk.download('punkt')
-        nltk.download('stopwords')
+        # Handle SSL certificate issues
+        try:
+            _create_unverified_https_context = ssl._create_unverified_context
+        except AttributeError:
+            pass
+        else:
+            ssl._create_default_https_context = _create_unverified_https_context
+        
+        # Set NLTK data path for Streamlit Cloud
+        import os
+        nltk_data_dir = os.path.expanduser('~/nltk_data')
+        if not os.path.exists(nltk_data_dir):
+            os.makedirs(nltk_data_dir)
+        
+        if nltk_data_dir not in nltk.data.path:
+            nltk.data.path.append(nltk_data_dir)
+        
+        # Download required data with error handling
+        required_data = [
+            ('tokenizers/punkt', 'punkt'),
+            ('tokenizers/punkt_tab', 'punkt_tab'),
+            ('corpora/stopwords', 'stopwords')
+        ]
+        
+        for resource_path, resource_name in required_data:
+            try:
+                nltk.data.find(resource_path)
+                print(f"✅ {resource_name} already available")
+            except LookupError:
+                print(f"📥 Downloading {resource_name}...")
+                try:
+                    nltk.download(resource_name, quiet=True)
+                    print(f"✅ {resource_name} downloaded successfully")
+                except Exception as e:
+                    print(f"⚠️ Failed to download {resource_name}: {e}")
+                    
+        return True
+    except Exception as e:
+        print(f"❌ NLTK setup error: {e}")
+        return False
 
-download_nltk_data()
+# Try to download NLTK data, but don't fail if it doesn't work
+try:
+    download_nltk_data()
+except Exception as e:
+    print(f"⚠️ NLTK download failed: {e}")
 
 class FakeNewsDetector:
     def __init__(self):
-        self.vectorizer = None
+        """Initialize the fake news detector with fallback support"""
         self.model = None
-        self.stemmer = PorterStemmer()
-        self.stop_words = set(stopwords.words('english'))
+        self.vectorizer = None
         
-        # Suspicious keywords that often appear in fake news
+        # Initialize NLTK components with fallbacks
+        try:
+            # Try to use NLTK stemmer
+            if NLTK_AVAILABLE:
+                self.stemmer = PorterStemmer()
+            else:
+                raise ImportError("NLTK not available")
+        except:
+            # Fallback: create a simple stemmer
+            print("⚠️ NLTK PorterStemmer not available, using simple stemmer")
+            class SimpleStemmer:
+                def stem(self, word):
+                    # Simple rule-based stemming
+                    if word.endswith('ing'):
+                        return word[:-3]
+                    elif word.endswith('ed'):
+                        return word[:-2]
+                    elif word.endswith('ly'):
+                        return word[:-2]
+                    elif word.endswith('s') and len(word) > 3:
+                        return word[:-1]
+                    return word
+            self.stemmer = SimpleStemmer()
+        
+        try:
+            # Try to use NLTK stopwords
+            if NLTK_AVAILABLE:
+                self.stop_words = set(stopwords.words('english'))
+            else:
+                raise ImportError("NLTK not available")
+        except:
+            # Fallback: use basic English stopwords
+            print("⚠️ NLTK stopwords not available, using basic stopwords")
+            self.stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
+        
+        # Suspicious keywords for fake news detection
         self.suspicious_keywords = [
-            'breaking', 'urgent', 'shocking', 'unbelievable', 'amazing', 'incredible',
-            'secret', 'hidden', 'exposed', 'revealed', 'conspiracy', 'leaked',
-            'mainstream media', 'they dont want you to know', 'government coverup',
-            'big pharma', 'wake up', 'sheeple', 'propaganda', 'fake news',
-            'hoax', 'scam', 'lie', 'deception', 'must read', 'viral',
-            'clickbait', 'you wont believe', 'doctors hate', 'miracle cure'
+            'breaking', 'urgent', 'shocking', 'unbelievable', 'secret', 'exposed',
+            'you won\'t believe', 'must read', 'viral', 'amazing', 'incredible',
+            'mainstream media', 'government coverup', 'big pharma', 'hidden truth',
+            'doctors hate', 'miracle cure', 'natural remedy', 'conspiracy',
+            'they don\'t want you to know', 'banned', 'forbidden', 'exclusive',
+            'leaked', 'insider reveals', 'whistleblower', 'suppressed',
+            'alternative facts', 'fake news media', 'deep state', 'cover up',
+            'mind control', 'population control', 'new world order',
+            'illuminati', 'freemasons', 'chemtrails', 'flat earth'
         ]
     
     def preprocess_text(self, text):
-        """Preprocess text for model prediction"""
+        """Preprocess text for analysis with fallback tokenization"""
+        if not isinstance(text, str):
+            text = str(text)
+        
         # Convert to lowercase
         text = text.lower()
         
-        # Keep original length for analysis
-        original_length = len(text.split())
+        # Remove URLs and email addresses
+        text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
+        text = re.sub(r'\S+@\S+', '', text)
         
-        # Less aggressive preprocessing for short inputs
-        if original_length <= 3:
-            # For very short inputs, keep more information
-            text = re.sub(r'[^a-zA-Z\s\.\!\?\,]', '', text)
-            tokens = word_tokenize(text)
-            # Don't remove as many stopwords for short inputs
-            tokens = [self.stemmer.stem(token) for token in tokens 
-                     if len(token) > 1]  # Less strict filtering
-        else:
-            # Normal preprocessing for longer texts
-            text = re.sub(r'[^a-zA-Z\s]', '', text)
-            tokens = word_tokenize(text)
+        # Remove special characters but keep basic punctuation
+        text = re.sub(r'[^a-zA-Z\s\.\!\?\,]', '', text)
+        
+        # Tokenize (word_tokenize now has fallback built-in)
+        tokens = word_tokenize(text)
+        
+        # Remove stopwords and apply stemming with fallback
+        try:
+            # Try using NLTK stopwords and stemmer
             tokens = [self.stemmer.stem(token) for token in tokens 
                      if token not in self.stop_words and len(token) > 2]
+        except:
+            # Fallback: just filter short words and common English stopwords
+            basic_stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
+            tokens = [token for token in tokens if token not in basic_stopwords and len(token) > 2]
         
-        processed = ' '.join(tokens)
-        
-        # If processing removed everything, use original words
-        if not processed.strip() and text.strip():
-            simple_tokens = [word.lower() for word in text.split() if word.isalpha()]
-            processed = ' '.join(simple_tokens)
-        
-        return processed
+        return ' '.join(tokens)
     
     def find_suspicious_keywords(self, text):
         """Find suspicious keywords in text"""
